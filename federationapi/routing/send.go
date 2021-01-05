@@ -798,7 +798,7 @@ func (t *txnReq) resolveStatesAndCheck(ctx context.Context, roomVersion gomatrix
 	}
 	resolvedStateEvents, err := gomatrixserverlib.ResolveConflicts(roomVersion, stateEventList, authEventList)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gomatrixserverlib.ResolveConflicts: %w", err)
 	}
 	// apply the current event
 retryAllowedState:
@@ -826,7 +826,7 @@ retryAllowedState:
 			goto retryAllowedState
 		default:
 		}
-		return nil, err
+		return nil, fmt.Errorf("checkAllowedByState: %w", err)
 	}
 	return &gomatrixserverlib.RespState{
 		AuthEvents:  authEventList,
