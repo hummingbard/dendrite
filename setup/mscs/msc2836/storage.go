@@ -26,7 +26,7 @@ type Database interface {
 	// ChildrenForParent returns the events who have the given `eventID` as an m.relationship with the
 	// provided `relType`. The returned slice is sorted by origin_server_ts according to whether
 	// `recentFirst` is true or false.
-	ChildrenForParent(ctx context.Context, eventID, relType string, recentFirst bool) ([]eventInfo, error)
+	ChildrenForParent(ctx context.Context, eventID, relType string, recentFirst bool, lastEvent string) ([]eventInfo, error)
 	// ParentForChild returns the parent event for the given child `eventID`. The eventInfo should be nil if
 	// there is no parent for this child event, with no error. The parent eventInfo can be missing the
 	// timestamp if the event is not known to the server.
@@ -51,6 +51,8 @@ type DB struct {
 	insertNodeStmt                         *sql.Stmt
 	selectChildrenForParentOldestFirstStmt *sql.Stmt
 	selectChildrenForParentRecentFirstStmt *sql.Stmt
+	selectChildrenForParentInitialStmt     *sql.Stmt
+	selectChildrenForParentNextStmt        *sql.Stmt
 	selectParentForChildStmt               *sql.Stmt
 	updateChildMetadataStmt                *sql.Stmt
 	selectChildMetadataStmt                *sql.Stmt
@@ -119,6 +121,24 @@ func newPostgresDatabase(dbOpts *config.DatabaseOptions) (Database, error) {
 		return nil, err
 	}
 	if d.selectChildrenForParentRecentFirstStmt, err = d.db.Prepare(selectChildrenQuery + "DESC"); err != nil {
+		return nil, err
+	}
+	if d.selectChildrenForParentInitialStmt, err = d.db.Prepare(`
+		SELECT child_event_id, origin_server_ts, room_id FROM msc2836_edges
+		LEFT JOIN msc2836_nodes ON msc2836_edges.child_event_id = msc2836_nodes.event_id
+		WHERE parent_event_id = $1 AND rel_type = $2
+		AND origin_server_ts > $3
+		ORDER BY origin_server_ts DESC
+	`); err != nil {
+		return nil, err
+	}
+	if d.selectChildrenForParentNextStmt, err = d.db.Prepare(`
+		SELECT child_event_id, origin_server_ts, room_id FROM msc2836_edges
+		LEFT JOIN msc2836_nodes ON msc2836_edges.child_event_id = msc2836_nodes.event_id
+		WHERE parent_event_id = $1 AND rel_type = $2
+		AND origin_server_ts < $3
+		ORDER BY origin_server_ts DESC
+	`); err != nil {
 		return nil, err
 	}
 	if d.selectParentForChildStmt, err = d.db.Prepare(`
@@ -199,6 +219,24 @@ func newSQLiteDatabase(dbOpts *config.DatabaseOptions) (Database, error) {
 		return nil, err
 	}
 	if d.selectChildrenForParentRecentFirstStmt, err = d.db.Prepare(selectChildrenQuery + "DESC"); err != nil {
+		return nil, err
+	}
+	if d.selectChildrenForParentInitialStmt, err = d.db.Prepare(`
+		SELECT child_event_id, origin_server_ts, room_id FROM msc2836_edges
+		LEFT JOIN msc2836_nodes ON msc2836_edges.child_event_id = msc2836_nodes.event_id
+		WHERE parent_event_id = $1 AND rel_type = $2
+		AND origin_server_ts > $3
+		ORDER BY origin_server_ts DESC
+	`); err != nil {
+		return nil, err
+	}
+	if d.selectChildrenForParentNextStmt, err = d.db.Prepare(`
+		SELECT child_event_id, origin_server_ts, room_id FROM msc2836_edges
+		LEFT JOIN msc2836_nodes ON msc2836_edges.child_event_id = msc2836_nodes.event_id
+		WHERE parent_event_id = $1 AND rel_type = $2
+		AND origin_server_ts < $3
+		ORDER BY origin_server_ts DESC
+	`); err != nil {
 		return nil, err
 	}
 	if d.selectParentForChildStmt, err = d.db.Prepare(`
@@ -284,13 +322,22 @@ func (p *DB) MarkChildrenExplored(ctx context.Context, eventID string) error {
 	return err
 }
 
-func (p *DB) ChildrenForParent(ctx context.Context, eventID, relType string, recentFirst bool) ([]eventInfo, error) {
+func (p *DB) ChildrenForParent(ctx context.Context, eventID, relType string, recentFirst bool, lastEvent string) ([]eventInfo, error) {
 	var rows *sql.Rows
 	var err error
-	if recentFirst {
-		rows, err = p.selectChildrenForParentRecentFirstStmt.QueryContext(ctx, eventID, relType)
+	//Temporary pagination hack until next_batch is implemented
+	if lastEvent != "" {
+		if lastEvent == "0" {
+			rows, err = p.selectChildrenForParentInitialStmt.QueryContext(ctx, eventID, relType, lastEvent)
+		} else {
+			rows, err = p.selectChildrenForParentNextStmt.QueryContext(ctx, eventID, relType, lastEvent)
+		}
 	} else {
-		rows, err = p.selectChildrenForParentOldestFirstStmt.QueryContext(ctx, eventID, relType)
+		if recentFirst {
+			rows, err = p.selectChildrenForParentRecentFirstStmt.QueryContext(ctx, eventID, relType)
+		} else {
+			rows, err = p.selectChildrenForParentOldestFirstStmt.QueryContext(ctx, eventID, relType)
+		}
 	}
 	if err != nil {
 		return nil, err

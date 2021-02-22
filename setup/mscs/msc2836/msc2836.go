@@ -54,6 +54,7 @@ type EventRelationshipRequest struct {
 	IncludeChildren bool   `json:"include_children"`
 	Direction       string `json:"direction"`
 	Batch           string `json:"batch"`
+	LastEvent       string `json:"last_event"`
 }
 
 func NewEventRelationshipRequest(body io.Reader) (*EventRelationshipRequest, error) {
@@ -270,7 +271,7 @@ func (rc *reqCtx) process() (*gomatrixserverlib.MSC2836EventRelationshipsRespons
 	if rc.req.IncludeChildren {
 		remaining := rc.req.Limit - len(returnEvents)
 		if remaining > 0 {
-			children, resErr := rc.includeChildren(rc.db, event.EventID(), remaining, rc.req.RecentFirst)
+			children, resErr := rc.includeChildren(rc.db, event.EventID(), remaining, rc.req.RecentFirst, rc.req.LastEvent)
 			if resErr != nil {
 				return nil, resErr
 			}
@@ -381,7 +382,7 @@ func (rc *reqCtx) includeParent(childEvent *gomatrixserverlib.HeaderedEvent) (pa
 // If include_children: true, lookup all events which have event_id as an m.relationship
 // Apply history visibility checks to all these events and add the ones which pass into the response array,
 // honouring the recent_first flag and the limit.
-func (rc *reqCtx) includeChildren(db Database, parentID string, limit int, recentFirst bool) ([]*gomatrixserverlib.HeaderedEvent, *util.JSONResponse) {
+func (rc *reqCtx) includeChildren(db Database, parentID string, limit int, recentFirst bool, lastEvent string) ([]*gomatrixserverlib.HeaderedEvent, *util.JSONResponse) {
 	if rc.hasUnexploredChildren(parentID) {
 		// we need to do a remote request to pull in the children as we are missing them locally.
 		serversToQuery := rc.getServersForEventID(parentID)
@@ -407,7 +408,7 @@ func (rc *reqCtx) includeChildren(db Database, parentID string, limit int, recen
 		}
 		// fallthrough to pull these new events from the DB
 	}
-	children, err := db.ChildrenForParent(rc.ctx, parentID, constRelType, recentFirst)
+	children, err := db.ChildrenForParent(rc.ctx, parentID, constRelType, recentFirst, lastEvent)
 	if err != nil {
 		util.GetLogger(rc.ctx).WithError(err).Error("failed to get ChildrenForParent")
 		resErr := jsonerror.InternalServerError()
@@ -683,7 +684,7 @@ func (rc *reqCtx) addChildMetadata(ev *gomatrixserverlib.HeaderedEvent) {
 }
 
 func (rc *reqCtx) getChildMetadata(eventID string) (count int, hash []byte) {
-	children, err := rc.db.ChildrenForParent(rc.ctx, eventID, constRelType, false)
+	children, err := rc.db.ChildrenForParent(rc.ctx, eventID, constRelType, false, "")
 	if err != nil {
 		util.GetLogger(rc.ctx).WithError(err).Warn("Failed to get ChildrenForParent for getting child metadata")
 		return
@@ -838,7 +839,7 @@ func (w *walker) nextChild(toWalk []walkInfo) (*walkInfo, []walkInfo) {
 // meaning this can actually be returning the parent for the event instead of the children.
 func (w *walker) childrenForParent(eventID string) ([]eventInfo, error) {
 	if w.req.Direction == "down" {
-		return w.db.ChildrenForParent(w.ctx, eventID, constRelType, w.req.RecentFirst)
+		return w.db.ChildrenForParent(w.ctx, eventID, constRelType, w.req.RecentFirst, "")
 	}
 	// find the event to pull out the parent
 	ei, err := w.db.ParentForChild(w.ctx, eventID, constRelType)
