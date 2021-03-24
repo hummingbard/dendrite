@@ -148,7 +148,7 @@ func SetAvatarURL(
 		AvatarURL:   r.AvatarURL,
 	}
 
-	events, err := buildMembershipEvents(
+	_, err = buildMembershipEvents(
 		req.Context(), res.RoomIDs, newProfile, userID, cfg, evTime, rsAPI,
 	)
 	switch e := err.(type) {
@@ -163,10 +163,12 @@ func SetAvatarURL(
 		return jsonerror.InternalServerError()
 	}
 
-	if err := api.SendEvents(req.Context(), rsAPI, api.KindNew, events, cfg.Matrix.ServerName, nil); err != nil {
-		util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
-		return jsonerror.InternalServerError()
-	}
+	/*
+		if err := api.SendEvents(req.Context(), rsAPI, api.KindNew, events, cfg.Matrix.ServerName, nil); err != nil {
+			util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
+			return jsonerror.InternalServerError()
+		}
+	*/
 
 	return util.JSONResponse{
 		Code: http.StatusOK,
@@ -259,7 +261,7 @@ func SetDisplayName(
 		AvatarURL:   oldProfile.AvatarURL,
 	}
 
-	events, err := buildMembershipEvents(
+	_, err = buildMembershipEvents(
 		req.Context(), res.RoomIDs, newProfile, userID, cfg, evTime, rsAPI,
 	)
 	switch e := err.(type) {
@@ -274,10 +276,12 @@ func SetDisplayName(
 		return jsonerror.InternalServerError()
 	}
 
-	if err := api.SendEvents(req.Context(), rsAPI, api.KindNew, events, cfg.Matrix.ServerName, nil); err != nil {
-		util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
-		return jsonerror.InternalServerError()
-	}
+	/*
+		if err := api.SendEvents(req.Context(), rsAPI, api.KindNew, events, cfg.Matrix.ServerName, nil); err != nil {
+			util.GetLogger(req.Context()).WithError(err).Error("SendEvents failed")
+			return jsonerror.InternalServerError()
+		}
+	*/
 
 	return util.JSONResponse{
 		Code: http.StatusOK,
